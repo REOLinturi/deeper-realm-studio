@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deeper Realm Studio</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <section class="viewer-panel">
+      <canvas id="fractal-canvas" aria-label="Julia fractal viewport"></canvas>
+      <div class="hud">
+        <div class="hud-card">
+          <h2>Realm Metrics</h2>
+          <dl class="stats-grid">
+            <div><dt>FPS</dt><dd id="fps-stat">0</dd></div>
+            <div><dt>Zoom</dt><dd id="zoom-stat">1.00x</dd></div>
+            <div><dt>Depth</dt><dd id="depth-stat">surface</dd></div>
+            <div><dt>Iterations</dt><dd id="iter-stat">0</dd></div>
+            <div><dt>Constant</dt><dd id="c-stat">0.00 + 0.00i</dd></div>
+            <div><dt>Mode</dt><dd id="mode-stat">manual</dd></div>
+          </dl>
+        </div>
+        <div class="hud-card">
+          <h2>Flight Controls</h2>
+          <ul class="help-lines">
+            <li><code>Wheel</code> zoom toward cursor</li>
+            <li><code>Drag</code> pan the viewport</li>
+            <li><code>Alt + drag</code> sculpt the Julia constant</li>
+            <li><code>W A S D</code> drift, <code>Q / E</code> zoom</li>
+            <li><code>Space</code> toggle automated navigation</li>
+          </ul>
+        </div>
+      </div>
+      <div id="overlay-message" class="overlay-message" aria-live="polite"></div>
+    </section>
+
+    <aside class="control-panel">
+      <header class="panel-header">
+        <p class="eyebrow">GPU Julia Fractal Studio</p>
+        <h1>Deeper Realm Studio</h1>
+        <p class="lede">
+          Realtime Julia-set exploration with GPU rendering, art-driven color shaping,
+          automated navigation, live recording, and keyframe-based video export.
+        </p>
+      </header>
+
+      <section class="control-group">
+        <h2 class="group-title">Palette <small>tone and atmosphere</small></h2>
+        <div class="control-row">
+          <label for="palette-select">Preset</label>
+          <select id="palette-select"></select>
+        </div>
+        <div class="control-row">
+          <label for="hue-shift">Hue Shift <output data-output="hue-shift">0.00</output></label>
+          <input id="hue-shift" type="range" min="-1" max="1" step="0.01" value="0.02">
+        </div>
+        <div class="control-row">
+          <label for="saturation">Saturation <output data-output="saturation">1.12</output></label>
+          <input id="saturation" type="range" min="0" max="2" step="0.01" value="1.12">
+        </div>
+        <div class="control-row">
+          <label for="contrast">Contrast <output data-output="contrast">1.15</output></label>
+          <input id="contrast" type="range" min="0.5" max="2" step="0.01" value="1.15">
+        </div>
+        <div class="control-row">
+          <label for="glow">Glow <output data-output="glow">0.72</output></label>
+          <input id="glow" type="range" min="0" max="2" step="0.01" value="0.72">
+        </div>
+        <div class="control-row">
+          <label for="trap-strength">Orbit Trap <output data-output="trap-strength">0.95</output></label>
+          <input id="trap-strength" type="range" min="0.1" max="2" step="0.01" value="0.95">
+        </div>
+      </section>
+
+      <section class="control-group">
+        <h2 class="group-title">Navigation <small>camera and detail</small></h2>
+        <div class="control-row">
+          <label for="constant-real">Constant Real <output data-output="constant-real">-0.780</output></label>
+          <input id="constant-real" type="range" min="-1.6" max="1.6" step="0.001" value="-0.78">
+        </div>
+        <div class="control-row">
+          <label for="constant-imag">Constant Imag <output data-output="constant-imag">0.136</output></label>
+          <input id="constant-imag" type="range" min="-1.6" max="1.6" step="0.001" value="0.136">
+        </div>
+        <div class="control-row">
+          <label for="base-iterations">Base Iterations <output data-output="base-iterations">240</output></label>
+          <input id="base-iterations" type="range" min="40" max="1400" step="1" value="240">
+        </div>
+        <div class="control-row">
+          <label for="detail-boost">Adaptive Detail <output data-output="detail-boost">14</output></label>
+          <input id="detail-boost" type="range" min="0" max="40" step="1" value="14">
+        </div>
+        <div class="control-row">
+          <label for="escape-radius">Escape Radius <output data-output="escape-radius">8.0</output></label>
+          <input id="escape-radius" type="range" min="2" max="40" step="0.1" value="8">
+        </div>
+        <div class="control-row">
+          <label for="rotation-deg">Rotation <output data-output="rotation-deg">-12 deg</output></label>
+          <input id="rotation-deg" type="range" min="-180" max="180" step="1" value="-12">
+        </div>
+        <div class="control-row">
+          <label for="zoom-speed">Zoom Speed <output data-output="zoom-speed">1.080</output></label>
+          <input id="zoom-speed" type="range" min="1.01" max="1.24" step="0.001" value="1.08">
+        </div>
+        <div class="control-row">
+          <label for="resolution-scale">Resolution Scale <output data-output="resolution-scale">1.00</output></label>
+          <input id="resolution-scale" type="range" min="0.35" max="1.4" step="0.01" value="1">
+        </div>
+        <div class="button-grid">
+          <button id="reset-view-btn" class="ghost-button" type="button">Reset View</button>
+          <button id="random-constant-btn" class="ghost-button" type="button">Random Constant</button>
+        </div>
+      </section>
+
+      <section class="control-group">
+        <h2 class="group-title">Automation <small>deeper-realm steering</small></h2>
+        <div class="control-row">
+          <label for="auto-speed">Auto Speed <output data-output="auto-speed">0.55</output></label>
+          <input id="auto-speed" type="range" min="0.1" max="2.5" step="0.01" value="0.55">
+        </div>
+        <div class="control-row">
+          <label for="auto-drift">Auto Drift <output data-output="auto-drift">0.32</output></label>
+          <input id="auto-drift" type="range" min="0" max="1.2" step="0.01" value="0.32">
+        </div>
+        <div class="button-grid">
+          <button id="auto-nav-btn" class="pill-button" type="button">Start Automated Navigation</button>
+          <button id="save-frame-btn" class="ghost-button" type="button">Save PNG</button>
+        </div>
+        <p class="footer-note">
+          Automated navigation slowly dives inward, drifts the constant, and rotates the viewport.
+          Manual input immediately takes control.
+        </p>
+      </section>
+
+      <section class="control-group">
+        <h2 class="group-title">Video Export <small>live or scripted</small></h2>
+        <div class="control-row">
+          <label for="record-fps">Capture FPS <output data-output="record-fps">30</output></label>
+          <input id="record-fps" type="range" min="12" max="60" step="1" value="30">
+        </div>
+        <div class="control-row">
+          <label for="path-duration">Path Duration <output data-output="path-duration">12.0 s</output></label>
+          <input id="path-duration" type="range" min="3" max="60" step="0.5" value="12">
+        </div>
+        <div class="button-grid">
+          <button id="live-record-btn" class="pill-button" type="button">Start Live Record</button>
+          <button id="render-path-btn" class="ghost-button" type="button">Render Keyframe Path</button>
+        </div>
+        <p class="footer-note">
+          Exports use the browser MediaRecorder API and download as <code>webm</code>.
+          Live recording captures your manual or automated navigation in realtime.
+        </p>
+      </section>
+
+      <section class="control-group">
+        <h2 class="group-title">Keyframes <small>guided dives</small></h2>
+        <div class="button-grid">
+          <button id="capture-keyframe-btn" class="ghost-button" type="button">Capture Keyframe</button>
+          <button id="clear-keyframes-btn" class="danger-button" type="button">Clear Keyframes</button>
+        </div>
+        <div id="keyframe-list" class="keyframe-list"></div>
+      </section>
+    </aside>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
