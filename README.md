@@ -14,7 +14,9 @@
 
 ## Run It
 
-Open [index.html](/C:/Codex_Demot/Fractal_demo/index.html) in a modern browser with `WebGL2` support.
+Open `index.html` locally in a modern browser with `WebGL2` support, or use the published GitHub Pages site:
+
+https://reolinturi.github.io/deeper-realm-studio/
 
 No build step is required.
 
