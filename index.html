@@ -7,47 +7,44 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <header class="masthead"><h1>Deeper Realm <i>Studio</i></h1><span>Julia fractal explorer</span></header>
   <main class="app-shell">
     <section class="viewer-panel">
       <canvas id="fractal-canvas" aria-label="Julia fractal viewport"></canvas>
-      <div class="hud">
-        <div class="hud-card">
-          <h2>Realm Metrics</h2>
-          <dl class="stats-grid">
-            <div><dt>FPS</dt><dd id="fps-stat">0</dd></div>
-            <div><dt>Zoom</dt><dd id="zoom-stat">1.00x</dd></div>
-            <div><dt>Depth</dt><dd id="depth-stat">surface</dd></div>
-            <div><dt>Iterations</dt><dd id="iter-stat">0</dd></div>
-            <div><dt>Constant</dt><dd id="c-stat">0.00 + 0.00i</dd></div>
-            <div><dt>Mode</dt><dd id="mode-stat">manual</dd></div>
-          </dl>
-        </div>
-        <div class="hud-card">
-          <h2>Flight Controls</h2>
-          <ul class="help-lines">
-            <li><code>Wheel</code> zoom toward cursor</li>
-            <li><code>Drag</code> pan the viewport</li>
-            <li><code>Alt + drag</code> sculpt the Julia constant</li>
-            <li><code>W A S D</code> drift, <code>Q / E</code> zoom</li>
-            <li><code>Space</code> toggle automated navigation</li>
-          </ul>
-        </div>
+      <div class="stage-caption"><span id="scene-type">Quaternion Julia</span><h2 id="scene-title">Tidal bronze</h2></div>
+      <div class="flight-bar">
+        <button id="auto-nav-btn" class="pill-button" type="button" aria-pressed="false">Guided flight</button>
+        <button id="refocus-btn" class="ghost-button" type="button">Find detail</button>
+        <button id="zoom-in" class="ghost-button" type="button" aria-label="Zoom in">+</button>
+        <button id="zoom-out" class="ghost-button" type="button" aria-label="Zoom out">&minus;</button>
       </div>
       <div id="overlay-message" class="overlay-message" aria-live="polite"></div>
     </section>
 
     <aside class="control-panel">
-      <header class="panel-header">
-        <p class="eyebrow">GPU Julia Fractal Studio</p>
-        <h1>Deeper Realm Studio</h1>
-        <p class="lede">
-          Realtime Julia-set exploration with GPU rendering, art-driven color shaping,
-          automated navigation, live recording, and keyframe-based video export.
-        </p>
-      </header>
+      <section class="specimen">
+        <h2>Explore</h2>
+        <div class="switcher" role="group" aria-label="Fractal view">
+          <button type="button" id="volume-btn" aria-pressed="true">3D sculpture</button>
+          <button type="button" id="plane-btn" aria-pressed="false">2D plane</button>
+        </div>
+        <label for="scene-select">Specimen</label>
+        <select id="scene-select">
+          <option>Tidal bronze</option><option>Glacial lace</option><option>Ember coral</option>
+        </select>
+        <div id="slice-row" class="control-row">
+          <label for="slice">Cross section <output data-output="slice">0.06</output></label>
+          <input id="slice" type="range" min="-0.65" max="0.65" step="0.005" value="0.06">
+        </div>
+        <p id="steer-help">Drag to orbit. Scroll to approach. Find detail frames a folded region of the surface.</p>
+      </section>
+      <section class="quick-tools">
+        <button id="live-record-btn" class="pill-button" type="button">Start Live Record</button>
+        <button id="save-frame-btn" class="ghost-button" type="button">Save PNG</button>
+      </section>
 
-      <section class="control-group">
-        <h2 class="group-title">Palette <small>tone and atmosphere</small></h2>
+      <details class="control-group" open>
+        <summary>Palette</summary>
         <div class="control-row">
           <label for="palette-select">Preset</label>
           <select id="palette-select"></select>
@@ -72,10 +69,10 @@
           <label for="trap-strength">Orbit Trap <output data-output="trap-strength">0.95</output></label>
           <input id="trap-strength" type="range" min="0.1" max="2" step="0.01" value="0.95">
         </div>
-      </section>
+      </details>
 
-      <section class="control-group">
-        <h2 class="group-title">Navigation <small>camera and detail</small></h2>
+      <details class="control-group">
+        <summary>Navigation</summary>
         <div class="control-row">
           <label for="constant-real">Constant Real <output data-output="constant-real">-0.780</output></label>
           <input id="constant-real" type="range" min="-1.6" max="1.6" step="0.001" value="-0.78">
@@ -112,10 +109,10 @@
           <button id="reset-view-btn" class="ghost-button" type="button">Reset View</button>
           <button id="random-constant-btn" class="ghost-button" type="button">Random Constant</button>
         </div>
-      </section>
+      </details>
 
-      <section class="control-group">
-        <h2 class="group-title">Automation <small>deeper-realm steering</small></h2>
+      <details class="control-group">
+        <summary>Automation</summary>
         <div class="control-row">
           <label for="auto-speed">Auto Speed <output data-output="auto-speed">0.55</output></label>
           <input id="auto-speed" type="range" min="0.1" max="2.5" step="0.01" value="0.55">
@@ -124,18 +121,14 @@
           <label for="auto-drift">Auto Drift <output data-output="auto-drift">0.32</output></label>
           <input id="auto-drift" type="range" min="0" max="1.2" step="0.01" value="0.32">
         </div>
-        <div class="button-grid">
-          <button id="auto-nav-btn" class="pill-button" type="button">Start Automated Navigation</button>
-          <button id="save-frame-btn" class="ghost-button" type="button">Save PNG</button>
-        </div>
-        <p class="footer-note">
-          Automated navigation slowly dives inward, drifts the constant, and rotates the viewport.
-          Manual input immediately takes control.
-        </p>
-      </section>
 
-      <section class="control-group">
-        <h2 class="group-title">Video Export <small>live or scripted</small></h2>
+        <p class="footer-note">
+          Flight circles the sculpture and searches for surface detail. Drag to take control, or press Space to resume.
+        </p>
+      </details>
+
+      <details class="control-group">
+        <summary>Video Export</summary>
         <div class="control-row">
           <label for="record-fps">Capture FPS <output data-output="record-fps">30</output></label>
           <input id="record-fps" type="range" min="12" max="60" step="1" value="30">
@@ -145,26 +138,27 @@
           <input id="path-duration" type="range" min="3" max="60" step="0.5" value="12">
         </div>
         <div class="button-grid">
-          <button id="live-record-btn" class="pill-button" type="button">Start Live Record</button>
           <button id="render-path-btn" class="ghost-button" type="button">Render Keyframe Path</button>
         </div>
         <p class="footer-note">
           Exports use the browser MediaRecorder API and download as <code>webm</code>.
           Live recording captures your manual or automated navigation in realtime.
         </p>
-      </section>
+      </details>
 
-      <section class="control-group">
-        <h2 class="group-title">Keyframes <small>guided dives</small></h2>
+      <details class="control-group">
+        <summary>Keyframes</summary>
         <div class="button-grid">
           <button id="capture-keyframe-btn" class="ghost-button" type="button">Capture Keyframe</button>
           <button id="clear-keyframes-btn" class="danger-button" type="button">Clear Keyframes</button>
         </div>
         <div id="keyframe-list" class="keyframe-list"></div>
-      </section>
+      </details>
+      <dl class="metrics"><div><dt>Frame rate</dt><dd id="fps-stat"></dd></div><div><dt>Zoom</dt><dd id="zoom-stat"></dd></div><div><dt>Depth</dt><dd id="depth-stat"></dd></div><div><dt>Iterations</dt><dd id="iter-stat"></dd></div><div><dt>Complex part</dt><dd id="c-stat"></dd></div><div><dt>Camera</dt><dd id="mode-stat"></dd></div></dl>
     </aside>
   </main>
 
+  <script src="volume.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

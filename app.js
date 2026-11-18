@@ -79,12 +79,19 @@
     { label: 'Twin Storm', re: -0.70176, im: -0.3842 },
   ];
 
+  const scenes = [
+    {name:'Tidal bronze', real:-0.52, imag:0.43, slice:0.06, yaw:0.56, pitch:0.32, palette:'Solar Tide'},
+    {name:'Glacial lace', real:-0.18, imag:0.69, slice:-0.13, yaw:1.92, pitch:0.47, palette:'Lagoon Prism'},
+    {name:'Ember coral', real:-0.82, imag:0.18, slice:0.16, yaw:-0.74, pitch:0.18, palette:'Ember Cathedral'},
+  ];
+  const el = id => document.getElementById(id);
   const state = {
+    view:'volume', scene:0, yaw:0.56, pitch:0.32, lens:2.55, aimX:0, aimY:0, slice:0.06,
     centerX: 0,
     centerY: 0,
     scale: 1.75,
-    cRe: -0.78,
-    cIm: 0.136,
+    cRe: scenes[0].real,
+    cIm: scenes[0].imag,
     baseIterations: 240,
     detailBoost: 14,
     escapeRadius: 8,
@@ -116,7 +123,7 @@
     messageTimer: 0,
     keyframes: [],
     autoAnchor: null,
-    autoStartedAt: 0,
+    flightTime: 0, nextProbe: 0, target: null, planeOut: false,
     recorderState: null,
     pathRender: null,
   };
@@ -158,11 +165,12 @@
   }
 
   function formatZoom() {
-    const zoom = 1.75 / state.scale;
+    const zoom = state.view === 'volume' ? state.lens / 2.55 : 1.75 / state.scale;
     return zoom < 1e4 ? `${zoom.toFixed(2)}x` : `${zoom.toExponential(2)}x`;
   }
 
   function formatDepth() {
+    if (state.view === 'volume') return state.lens > 4 ? 'close-up' : 'orbit';
     const depth = Math.log10(Math.max(1, 1.75 / state.scale));
     if (depth < 0.8) return 'surface';
     if (depth < 2) return 'inner ring';
@@ -212,6 +220,20 @@
   }
 
   function syncControlsFromState() {
+    const volume = state.view === 'volume';
+    el('plane-btn').setAttribute('aria-pressed', String(!volume));
+    el('volume-btn').setAttribute('aria-pressed', String(volume));
+    el('scene-type').textContent = volume ? 'Quaternion Julia' : 'Complex Julia';
+    el('scene-title').textContent = scenes[state.scene].name;
+    el('scene-select').selectedIndex = state.scene;
+    el('slice-row').hidden = !volume;
+    el('slice').value = state.slice;
+    el('steer-help').textContent = volume
+      ? 'Drag to orbit. Scroll to approach. Find detail frames a folded region of the surface.'
+      : 'Drag to pan. Scroll toward a detail. Guided flight follows the boundary.';
+    for (const input of [ui.baseIterations,ui.detailBoost,ui.escapeRadius,ui.rotationDeg]) {
+      input.closest('.control-row').hidden = volume;
+    }
     ui.paletteSelect.value = state.paletteName;
     ui.hueShift.value = String(state.hueShift);
     ui.saturation.value = String(state.saturation);
@@ -235,12 +257,14 @@
   }
 
   function updateButtons() {
-    ui.autoNavBtn.textContent = state.autoNavigate ? 'Stop Automated Navigation' : 'Start Automated Navigation';
+    ui.autoNavBtn.textContent = state.autoNavigate ? 'Pause flight' : 'Guided flight';
+    ui.autoNavBtn.setAttribute('aria-pressed', String(state.autoNavigate));
     ui.autoNavBtn.classList.toggle('active', state.autoNavigate);
     const isLiveRecording = runtime.recorderState && runtime.recorderState.mode === 'live';
     ui.liveRecordBtn.textContent = isLiveRecording ? 'Stop Live Record' : 'Start Live Record';
     ui.liveRecordBtn.classList.toggle('active', Boolean(runtime.recorderState));
-    ui.renderPathBtn.disabled = Boolean(runtime.recorderState);
+    ui.renderPathBtn.disabled = Boolean(runtime.recorderState) || runtime.keyframes.length < 2;
+    ui.autoNavBtn.disabled = Boolean(runtime.pathRender);
     ui.captureKeyframeBtn.disabled = Boolean(runtime.pathRender);
     ui.clearKeyframesBtn.disabled = runtime.keyframes.length === 0;
   }
@@ -249,7 +273,7 @@
     stats.fps.textContent = runtime.fpsSmoothed.toFixed(1);
     stats.zoom.textContent = formatZoom();
     stats.depth.textContent = formatDepth();
-    stats.iterations.textContent = String(getEffectiveIterations());
+    stats.iterations.textContent = state.view === 'volume' ? '16' : String(getEffectiveIterations());
     stats.constant.textContent = formatComplex(state.cRe, state.cIm);
     const modes = [state.autoNavigate ? 'auto' : 'manual'];
     if (runtime.pathRender) modes.push('path');
@@ -260,7 +284,8 @@
   function snapshotState(label) {
     return {
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      label,
+      label, view:state.view, scene:state.scene, yaw:state.yaw, pitch:state.pitch,
+      lens:state.lens, aimX:state.aimX, aimY:state.aimY, slice:state.slice,
       centerX: state.centerX,
       centerY: state.centerY,
       scale: state.scale,
@@ -280,6 +305,10 @@
   }
 
   function applySnapshot(snapshot, sync = true) {
+    state.view = snapshot.view || 'plane';
+    for (const key of ['scene','yaw','pitch','lens','aimX','aimY','slice']) {
+      if (snapshot[key] !== undefined) state[key] = snapshot[key];
+    }
     state.centerX = snapshot.centerX;
     state.centerY = snapshot.centerY;
     state.scale = snapshot.scale;
@@ -294,7 +323,7 @@
     state.contrast = snapshot.contrast;
     state.glow = snapshot.glow;
     state.trapStrength = snapshot.trapStrength;
-    if (snapshot.paletteName && paletteLibrary[snapshot.paletteName]) applyPalettePreset(snapshot.paletteName);
+    if (snapshot.paletteName && snapshot.paletteName !== state.paletteName) applyPalettePreset(snapshot.paletteName);
     if (sync) syncControlsFromState();
     markDirty();
   }
@@ -302,6 +331,10 @@
   function interpolateSnapshots(a, b, t) {
     const eased = smoothStep(t);
     return {
+      view: eased < 0.5 ? a.view : b.view, scene: eased < 0.5 ? a.scene : b.scene,
+      yaw: a.yaw + Math.atan2(Math.sin(b.yaw-a.yaw),Math.cos(b.yaw-a.yaw))*eased,
+      pitch: mix(a.pitch,b.pitch,eased), lens:mix(a.lens,b.lens,eased),
+      aimX:mix(a.aimX,b.aimX,eased), aimY:mix(a.aimY,b.aimY,eased), slice:mix(a.slice,b.slice,eased),
       centerX: mix(a.centerX, b.centerX, eased),
       centerY: mix(a.centerY, b.centerY, eased),
       scale: Math.exp(mix(Math.log(a.scale), Math.log(b.scale), eased)),
@@ -344,7 +377,7 @@
 
       const detail = document.createElement('div');
       detail.className = 'keyframe-detail';
-      detail.textContent = `${formatComplex(keyframe.cRe, keyframe.cIm)} | zoom ${(1.75 / keyframe.scale).toExponential(2)}`;
+      detail.textContent = `${keyframe.view === 'volume' ? '3D' : '2D'} | ${formatComplex(keyframe.cRe, keyframe.cIm)}`;
 
       const jump = document.createElement('button');
       jump.className = 'mini-button';
@@ -397,6 +430,7 @@
       runtime.autoAnchor.cRe = selection.re;
       runtime.autoAnchor.cIm = selection.im;
     }
+    markDirty();
     syncControlsFromState();
     setMessage(`Loaded ${selection.label}.`);
   }
@@ -407,14 +441,21 @@
     state.centerY = 0;
     state.scale = 1.75;
     state.rotationDeg = -12;
+    state.aimX = state.aimY = 0;
+    Object.assign(state,{yaw:scenes[state.scene].yaw,pitch:scenes[state.scene].pitch,lens:2.55});
+    markDirty();
     syncControlsFromState();
     setMessage('View reset.');
   }
 
   function startAutomatedNavigation() {
+    if (runtime.pathRender) return;
     state.autoNavigate = true;
-    runtime.autoStartedAt = performance.now();
-    runtime.autoAnchor = { cRe: state.cRe, cIm: state.cIm };
+    runtime.flightTime = 0;
+    runtime.nextProbe = 0;
+    runtime.target = null;
+    runtime.planeOut = false;
+    runtime.autoAnchor = { cRe: state.cRe, cIm: state.cIm, slice:state.slice };
     updateButtons();
     setMessage('Automated navigation engaged.');
   }
@@ -432,32 +473,100 @@
     else startAutomatedNavigation();
   }
 
-  function stepAutomatedNavigation(now, dt) {
-    if (!state.autoNavigate || runtime.pathRender) return false;
-    if (!runtime.autoAnchor) {
-      runtime.autoStartedAt = now;
-      runtime.autoAnchor = { cRe: state.cRe, cIm: state.cIm };
+  function chooseScene(index) {
+    const scene = scenes[index];
+    Object.assign(state, {scene:index,cRe:scene.real,cIm:scene.imag,slice:scene.slice});
+    applyPalettePreset(scene.palette);
+    resetView();
+    setMessage(scene.name);
+  }
+
+  function planeDetail() {
+    const values = new Float32Array(121);
+    for (let row=0; row<11; row++) {
+      for (let col=0; col<11; col++) {
+        let x=state.centerX+(col-5)*0.16*state.scale;
+        let y=state.centerY+(row-5)*0.16*state.scale;
+        let n=0;
+        while (n<96 && x*x+y*y<16) {
+          const next=x*x-y*y+state.cRe;
+          y=2*x*y+state.cIm;
+          x=next;
+          n++;
+        }
+        values[row*11+col]=n;
+      }
     }
+    let best=2, target=null;
+    for (let r=1; r<10; r++) {
+      for (let c=1; c<10; c++) {
+        const k=r*11+c;
+        const neighbors=[values[k],values[k+1],values[k-1],values[k-11],values[k+11]];
+        const score=(Math.max(...neighbors)-Math.min(...neighbors))/(1+0.14*Math.hypot(c-5,r-5));
+        if (score>best) {
+          best=score;
+          target={x:state.centerX+(c-5)*0.16*state.scale,y:state.centerY+(r-5)*0.16*state.scale};
+        }
+      }
+    }
+    return target;
+  }
 
-    const t = (now - runtime.autoStartedAt) * 0.001;
-    state.scale *= Math.pow(0.9928, dt * 60 * state.autoSpeed);
-    state.scale = clamp(state.scale, 1e-9, 8);
-
-    const drift = state.scale * state.autoDrift;
-    state.centerX += Math.cos(t * 0.77) * drift * dt * 0.45;
-    state.centerY += Math.sin(t * 0.52) * drift * dt * 0.45;
-    state.rotationDeg = wrapDegrees(state.rotationDeg + dt * 16 * state.autoSpeed);
-
-    const swing = 0.12 * state.autoDrift;
-    state.cRe = runtime.autoAnchor.cRe + Math.sin(t * 0.38) * swing;
-    state.cIm = runtime.autoAnchor.cIm + Math.cos(t * 0.31) * swing;
-
-    syncControlsFromState();
+  function findDetail() {
+    const volume = state.view === 'volume';
+    let target = volume ? juliaVolume.findSurface(state) : planeDetail();
+    if (!target) {
+      chooseScene(state.scene);
+      target = volume ? juliaVolume.findSurface(state) : planeDetail();
+    }
+    if (target && volume) Object.assign(state,{aimX:target.x,aimY:target.y,lens:4.7});
+    if (target && !volume) Object.assign(state,{centerX:target.x,centerY:target.y,scale:state.scale*0.7});
     markDirty();
+    setMessage(target ? 'Detail framed' : 'Overview restored');
+  }
+
+  function stepAutomatedNavigation(dt) {
+    if (!state.autoNavigate || runtime.pathRender) return false;
+    runtime.flightTime += dt * state.autoSpeed;
+    const t = runtime.flightTime;
+    const ease = 1-Math.exp(-dt*1.55);
+    const volume = state.view === 'volume';
+    if (volume) {
+      state.yaw = (state.yaw + dt*state.autoSpeed*0.20) % (2*Math.PI);
+      state.pitch = mix(state.pitch,0.27+0.45*Math.sin(t*0.24),ease);
+      state.slice = clamp(runtime.autoAnchor.slice + state.autoDrift*0.20*Math.sin(t*0.33),-0.65,0.65);
+      state.cIm = clamp(runtime.autoAnchor.cIm+state.autoDrift*0.06*Math.sin(t*0.49),-1.6,1.6);
+    }
+    if (t >= runtime.nextProbe) {
+      runtime.target = volume ? juliaVolume.findSurface(state) : planeDetail();
+      runtime.nextProbe = t + 0.65;
+      if (volume && !runtime.target) {
+        const scene = scenes[state.scene];
+        runtime.autoAnchor.cIm = mix(runtime.autoAnchor.cIm,scene.imag,0.45);
+        runtime.autoAnchor.slice = mix(runtime.autoAnchor.slice,scene.slice,0.45);
+        state.cRe = mix(state.cRe,scene.real,0.45);
+      }
+      if (!volume && (!runtime.target || state.scale<0.0004)) runtime.planeOut=true;
+      if (!volume && state.scale>=1.7 && runtime.target) runtime.planeOut=false;
+    }
+    const target = runtime.target;
+    if (volume) {
+      state.aimX = mix(state.aimX,target?.x ?? 0,ease);
+      state.aimY = mix(state.aimY,target?.y ?? 0,ease);
+      const close = 0.5-0.5*Math.cos(t*0.24);
+      state.lens = mix(state.lens,target ? 2.45+3.5*close : 2.4,ease);
+    } else {
+      const out=runtime.planeOut;
+      state.centerX = mix(state.centerX,out ? 0 : target?.x ?? 0,ease);
+      state.centerY = mix(state.centerY,out ? 0 : target?.y ?? 0,ease);
+      state.scale = clamp(state.scale*Math.exp((out ? 0.72 : -0.27)*dt*state.autoSpeed),0.00025,1.75);
+      state.rotationDeg = wrapDegrees(state.rotationDeg + dt*state.autoSpeed*state.autoDrift*12);
+    }
     return true;
   }
 
   function savePng() {
+    runtime.render.render(performance.now()*0.001,getEffectiveIterations());
     const link = document.createElement('a');
     link.download = `julia-frame-${Date.now()}.png`;
     link.href = canvas.toDataURL('image/png');
@@ -467,7 +576,7 @@
 
   function getRecordingMimeType() {
     if (!window.MediaRecorder) return '';
-    const options = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+    const options = ['video/webm;codecs=vp8', 'video/webm;codecs=vp9', 'video/webm'];
     return options.find((option) => MediaRecorder.isTypeSupported(option)) || '';
   }
 
@@ -485,14 +594,21 @@
       setMessage('A recording is already running.');
       return null;
     }
-    if (!window.MediaRecorder) {
-      setMessage('MediaRecorder is not available in this browser.', 2400);
+    if (!window.MediaRecorder || !canvas.captureStream || !getRecordingMimeType()) {
+      setMessage('WebM capture requires browser video recording support.', 4000);
       return null;
     }
 
     const mimeType = getRecordingMimeType();
-    const stream = canvas.captureStream(state.recordFps);
-    const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    let stream, recorder;
+    try {
+      stream = canvas.captureStream(state.recordFps);
+      recorder = new MediaRecorder(stream, { mimeType });
+    } catch (error) {
+      stream?.getTracks().forEach(track => track.stop());
+      setMessage('Could not open video encoder: ' + error.message, 5000);
+      return null;
+    }
     const chunks = [];
 
     let resolveDone;
@@ -503,19 +619,28 @@
     recorder.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) chunks.push(event.data);
     };
-    recorder.onerror = () => setMessage('Recording failed.', 2400);
+    let failed = false;
+    recorder.onerror = () => { failed = true; };
     recorder.onstop = () => {
       stream.getTracks().forEach((track) => track.stop());
       runtime.recorderState = null;
       const blob = new Blob(chunks, { type: mimeType || 'video/webm' });
-      if (blob.size > 0) downloadBlob(blob, `${mode}-julia-${Date.now()}.webm`);
+      if (!failed && blob.size) downloadBlob(blob, `${mode}-julia-${Date.now()}.webm`);
+      runtime.pathRender = null;
+      markDirty();
       updateButtons();
       updateStats();
       resolveDone(blob);
-      if (!runtime.pathRender) setMessage('Recording saved.');
+      setMessage(!failed && blob.size ? 'Video saved.' : 'Encoder returned no usable video. Try a lower resolution.', 4000);
     };
 
-    recorder.start(250);
+    try {
+      recorder.start(250);
+    } catch (error) {
+      stream.getTracks().forEach(track => track.stop());
+      setMessage('Recording failed: '+error.message,5000);
+      return null;
+    }
     runtime.recorderState = { mode, recorder, done };
     updateButtons();
     updateStats();
@@ -525,7 +650,7 @@
   function stopRecording() {
     if (!runtime.recorderState) return Promise.resolve(null);
     const { recorder, done } = runtime.recorderState;
-    recorder.stop();
+    if (recorder.state !== 'inactive') recorder.stop();
     return done;
   }
 
@@ -542,10 +667,11 @@
   }
 
   function interpolatePath(progress) {
-    const segmentCount = runtime.keyframes.length - 1;
+    const keyframes = runtime.pathRender.frames;
+    const segmentCount = keyframes.length - 1;
     const scaled = clamp(progress, 0, 1) * segmentCount;
     const index = Math.min(segmentCount - 1, Math.floor(scaled));
-    return interpolateSnapshots(runtime.keyframes[index], runtime.keyframes[index + 1], scaled - index);
+    return interpolateSnapshots(keyframes[index], keyframes[index + 1], scaled - index);
   }
 
   function renderKeyframePath() {
@@ -563,6 +689,7 @@
     runtime.pathRender = {
       startedAt: performance.now(),
       durationMs: state.pathDuration * 1000,
+      frames: runtime.keyframes.slice(),
       stopQueued: false,
     };
     updateButtons();
@@ -572,42 +699,48 @@
   function finishKeyframePath() {
     if (!runtime.pathRender) return;
     runtime.pathRender = null;
-    stopRecording().then(() => {
-      updateButtons();
-      updateStats();
-      setMessage('Keyframe path saved.');
-    });
+    stopRecording();
   }
 
   function bindUi() {
-    [
-      ui.hueShift, ui.saturation, ui.contrast, ui.glow, ui.trapStrength,
-      ui.constantReal, ui.constantImag, ui.baseIterations, ui.detailBoost, ui.escapeRadius,
-      ui.rotationDeg, ui.zoomSpeed, ui.resolutionScale, ui.autoSpeed, ui.autoDrift,
-      ui.recordFps, ui.pathDuration,
-    ].forEach((input) => {
+    const bindings = {constantReal:'cRe',constantImag:'cIm'};
+    for (const [name,input] of Object.entries(ui)) {
+      if (input.type !== 'range') continue;
       input.addEventListener('input', () => {
-        state.hueShift = Number(ui.hueShift.value);
-        state.saturation = Number(ui.saturation.value);
-        state.contrast = Number(ui.contrast.value);
-        state.glow = Number(ui.glow.value);
-        state.trapStrength = Number(ui.trapStrength.value);
-        state.cRe = Number(ui.constantReal.value);
-        state.cIm = Number(ui.constantImag.value);
-        state.baseIterations = Number(ui.baseIterations.value);
-        state.detailBoost = Number(ui.detailBoost.value);
-        state.escapeRadius = Number(ui.escapeRadius.value);
-        state.rotationDeg = wrapDegrees(Number(ui.rotationDeg.value));
-        state.zoomSpeed = Number(ui.zoomSpeed.value);
-        state.resolutionScale = Number(ui.resolutionScale.value);
-        state.autoSpeed = Number(ui.autoSpeed.value);
-        state.autoDrift = Number(ui.autoDrift.value);
-        state.recordFps = Number(ui.recordFps.value);
-        state.pathDuration = Number(ui.pathDuration.value);
+        if (['constantReal','constantImag','rotationDeg'].includes(name)) stopAutomatedNavigation(false);
+        state[bindings[name] || name] = Number(input.value);
         updateRangeOutputs();
         markDirty();
       });
-    });
+    }
+    for (const view of ['volume','plane']) {
+      el(view+'-btn').onclick = () => {
+        state.view = view;
+        if (state.autoNavigate) startAutomatedNavigation();
+        syncControlsFromState();
+        markDirty();
+      };
+    }
+    el('scene-select').onchange = event => {
+      const flying = state.autoNavigate;
+      chooseScene(event.target.selectedIndex);
+      if (flying) startAutomatedNavigation();
+    };
+    el('slice').oninput = event => {
+      stopAutomatedNavigation(false);
+      state.slice = Number(event.target.value);
+      updateRangeOutputs();
+      markDirty();
+    };
+    el('refocus-btn').onclick = findDetail;
+    for (const [id,direction] of [['zoom-in',-2],['zoom-out',2]]) {
+      el(id).onclick = () => {
+        stopAutomatedNavigation(false);
+        const {rect} = getCanvasMetrics();
+        zoomAt(rect.left+rect.width/2,rect.top+rect.height/2,direction);
+        markDirty();
+      };
+    }
 
     ui.paletteSelect.addEventListener('change', () => {
       applyPalettePreset(ui.paletteSelect.value);
@@ -631,7 +764,7 @@
   function screenToWorld(clientX, clientY) {
     const { rect, minDim } = getCanvasMetrics();
     const sx = ((clientX - rect.left) * 2 - rect.width) / minDim;
-    const sy = ((clientY - rect.top) * 2 - rect.height) / minDim;
+    const sy = (rect.height - (clientY - rect.top) * 2) / minDim;
     const angle = degToRad(state.rotationDeg);
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
@@ -641,9 +774,14 @@
   }
 
   function panByPixels(deltaX, deltaY) {
+    if (state.view === 'volume') {
+      state.yaw -= deltaX*0.007;
+      state.pitch = clamp(state.pitch+deltaY*0.007,-1.44,1.44);
+      return;
+    }
     const { minDim } = getCanvasMetrics();
     const sx = (deltaX * 2) / minDim;
-    const sy = (deltaY * 2) / minDim;
+    const sy = (-deltaY * 2) / minDim;
     const angle = degToRad(state.rotationDeg);
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
@@ -654,11 +792,15 @@
   }
 
   function steerConstant(deltaX, deltaY) {
-    state.cRe += deltaX * 0.0022;
-    state.cIm -= deltaY * 0.0022;
+    state.cRe = clamp(state.cRe+deltaX*0.0022,-1.6,1.6);
+    state.cIm = clamp(state.cIm-deltaY*0.0022,-1.6,1.6);
   }
 
   function zoomAt(clientX, clientY, direction) {
+    if (state.view === 'volume') {
+      state.lens = clamp(state.lens*Math.pow(state.zoomSpeed,-direction),1.4,18);
+      return;
+    }
     const before = screenToWorld(clientX, clientY);
     state.scale *= Math.pow(state.zoomSpeed, direction);
     state.scale = clamp(state.scale, 1e-9, 8);
@@ -718,7 +860,7 @@
       const activeTag = document.activeElement && document.activeElement.tagName;
       if (activeTag === 'INPUT' || activeTag === 'SELECT') return;
       const key = event.key.toLowerCase();
-      if (key === ' ') {
+      if (key === ' ' && !event.repeat && activeTag !== 'BUTTON' && activeTag !== 'SUMMARY') {
         event.preventDefault();
         toggleAutomatedNavigation();
         return;
@@ -727,6 +869,7 @@
     });
 
     window.addEventListener('keyup', (event) => runtime.keys.delete(event.key.toLowerCase()));
+    window.addEventListener('blur', () => runtime.keys.clear());
   }
 
   function stepKeyboard(dt) {
@@ -738,8 +881,12 @@
     if (pressed.has('s') || pressed.has('arrowdown')) { panByPixels(0, -160 * dt); changed = true; }
     if (pressed.has('a') || pressed.has('arrowleft')) { panByPixels(160 * dt, 0); changed = true; }
     if (pressed.has('d') || pressed.has('arrowright')) { panByPixels(-160 * dt, 0); changed = true; }
-    if (pressed.has('q')) { state.scale *= Math.pow(state.zoomSpeed, -dt * 40); changed = true; }
-    if (pressed.has('e')) { state.scale *= Math.pow(state.zoomSpeed, dt * 40); changed = true; }
+    if (pressed.has('q') || pressed.has('e')) {
+      const factor = Math.pow(state.zoomSpeed,(pressed.has('q') ? -1 : 1)*dt*40);
+      if (state.view === 'volume') state.lens = clamp(state.lens/factor,1.4,18);
+      else state.scale *= factor;
+      changed = true;
+    }
 
     if (changed) {
       stopAutomatedNavigation(false);
@@ -751,9 +898,12 @@
   }
 
   function resizeCanvas(gl) {
-    const dpr = window.devicePixelRatio || 1;
-    const width = Math.max(320, Math.floor(canvas.clientWidth * dpr * state.resolutionScale));
-    const height = Math.max(240, Math.floor(canvas.clientHeight * dpr * state.resolutionScale));
+    if (runtime.recorderState) return;
+    const dpr = state.view === 'volume'
+      ? Math.min(window.devicePixelRatio || 1, Math.sqrt(600000/Math.max(1,canvas.clientWidth*canvas.clientHeight)))
+      : window.devicePixelRatio || 1;
+    const width = Math.max(2, 2*Math.round(canvas.clientWidth * dpr * state.resolutionScale/2));
+    const height = Math.max(2, 2*Math.round(canvas.clientHeight * dpr * state.resolutionScale/2));
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
@@ -764,7 +914,8 @@
 
   function createRenderer() {
     const gl = canvas.getContext('webgl2', {
-      antialias: true,
+      antialias: false,
+      powerPreference: 'high-performance',
       alpha: false,
       depth: false,
       stencil: false,
@@ -818,6 +969,9 @@
         );
       }
 
+      uniform bool u_volume;
+      ${juliaVolume.shader}
+
       vec3 saturateColor(vec3 color, float amount) {
         float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
         return mix(vec3(luminance), color, amount);
@@ -829,9 +983,13 @@
 
       void main() {
         vec2 uv = (gl_FragCoord.xy * 2.0 - u_resolution.xy) / min(u_resolution.x, u_resolution.y);
+        if (u_volume) {
+          outColor = vec4(applyContrast(saturateColor(volume(uv),u_saturation),u_contrast),1.0);
+          return;
+        }
         float cs = cos(u_rotation);
         float sn = sin(u_rotation);
-        uv = mat2(cs, -sn, sn, cs) * uv;
+        uv = mat2(cs, sn, -sn, cs) * uv;
         vec2 current = u_center + uv * u_scale;
         float escapeSq = u_escapeRadius * u_escapeRadius;
         float trap = 1.0e9;
@@ -870,7 +1028,7 @@
           color += core * 0.22 * vec3(0.40, 0.64, 1.0);
         }
 
-        float vignette = smoothstep(1.85, 0.12, length(uv));
+        float vignette = 1.0-smoothstep(0.12,1.85,length(uv));
         color *= 0.82 + 0.18 * vignette;
         color = saturateColor(color, u_saturation);
         color = applyContrast(color, u_contrast);
@@ -921,6 +1079,8 @@
     gl.clearColor(0.01, 0.02, 0.04, 1);
 
     const uniforms = {
+      ...Object.fromEntries(['volume','eye','right','up','aim','lens','slice'].map(name =>
+        [name,gl.getUniformLocation(program,'u_'+name)])),
       resolution: gl.getUniformLocation(program, 'u_resolution'),
       center: gl.getUniformLocation(program, 'u_center'),
       scale: gl.getUniformLocation(program, 'u_scale'),
@@ -948,6 +1108,14 @@
         gl.viewport(0, 0, canvas.width, canvas.height);
         gl.uniform2f(uniforms.resolution, canvas.width, canvas.height);
         gl.uniform2f(uniforms.center, state.centerX, state.centerY);
+        gl.uniform1i(uniforms.volume,state.view === 'volume' ? 1 : 0);
+        if (state.view === 'volume') {
+          const camera = juliaVolume.basis(state.yaw,state.pitch);
+          for (const key of ['eye','right','up']) gl.uniform3fv(uniforms[key],camera[key]);
+          gl.uniform2f(uniforms.aim,state.aimX,state.aimY);
+          gl.uniform1f(uniforms.lens,state.lens);
+          gl.uniform1f(uniforms.slice,state.slice);
+        }
         gl.uniform1f(uniforms.scale, state.scale);
         gl.uniform2f(uniforms.c, state.cRe, state.cIm);
         gl.uniform1i(uniforms.iterations, iterations);
@@ -972,7 +1140,6 @@
     if (!runtime.pathRender) return false;
     const progress = clamp((now - runtime.pathRender.startedAt) / runtime.pathRender.durationMs, 0, 1);
     applySnapshot(interpolatePath(progress), false);
-    syncControlsFromState();
     markDirty();
     if (progress >= 1 && !runtime.pathRender.stopQueued) {
       runtime.pathRender.stopQueued = true;
@@ -982,20 +1149,22 @@
   }
 
   function frame(now) {
-    const dt = Math.min(0.1, (now - runtime.lastFrameTime) * 0.001 || 0.016);
+    const elapsed = Math.max(0.001, (now-runtime.lastFrameTime)*0.001);
+    const dt = Math.min(0.15,elapsed);
     runtime.lastFrameTime = now;
-    const fps = 1 / Math.max(dt, 0.0001);
+    const fps = 1/elapsed;
     runtime.fpsSmoothed = runtime.fpsSmoothed ? mix(runtime.fpsSmoothed, fps, 0.12) : fps;
 
     const keyboardChanged = stepKeyboard(dt);
-    const autoChanged = stepAutomatedNavigation(now, dt);
+    const autoChanged = stepAutomatedNavigation(dt);
     const pathChanged = stepPathRender(now);
     if (state.dirty || keyboardChanged || autoChanged || pathChanged || runtime.recorderState) {
       runtime.render.render(now * 0.001, getEffectiveIterations());
       state.dirty = false;
     }
 
-    if (now - runtime.lastHudUpdate > 90) {
+    if (now - runtime.lastHudUpdate > 180) {
+      if (autoChanged || pathChanged) syncControlsFromState();
       updateStats();
       runtime.lastHudUpdate = now;
     }
@@ -1011,14 +1180,18 @@
     bindKeyboard();
 
     const renderer = createRenderer();
-    if (!renderer) return;
+    if (!renderer) {
+      clearTimeout(runtime.messageTimer);
+      document.querySelectorAll('button,input,select').forEach(control => control.disabled = true);
+      return;
+    }
     runtime.render = renderer;
 
     syncControlsFromState();
     updateStats();
     window.addEventListener('resize', markDirty);
     requestAnimationFrame(frame);
-    setMessage('Julia realm ready. Wheel to dive.');
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) startAutomatedNavigation();
   }
 
   init();
